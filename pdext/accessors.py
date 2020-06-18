@@ -293,18 +293,19 @@ class IdxAccessor:
         self._frame = frame
         self._level = None
         self._accessor = None
-        self._keep_remaining = True
         self._copy = True
         
-    def __call__(self, level=None, keep_remaining=True, copy=True):
+    def __call__(self, level=None, copy=True):
         self._level = self._validate_level(level)
-        self._keep_remaining = keep_remaining
         self._copy = copy
         return self
         
     def __getitem__(self, level):
+        """
+        Return a single MultiIndex level.
+        """
         if not hasattr(self._frame.index, 'levels'):
-            raise TypeError('`__getitem__` is not supported for this type of index.')
+            raise TypeError(f'`__getitem__` is not supported for an instance of {type(self._frame.index).__name__}.')
         return self._frame.index.get_level_values(level)
         
     def __getattr__(self, attr):
@@ -323,7 +324,10 @@ class IdxAccessor:
         
     def _validate_level(self, level):
         if level is not None:
-            if _is_collection(level):
+            if not hasattr(self._frame.index, 'levels'):
+                raise ValueError(f'Unexpected parameter `level` value for an instance of `{type(self._frame.index).__name__}`.') 
+
+            elif _is_collection(level):
                 return [self._frame.index._get_level_number(level_) for level_ in level]
             return self._frame.index._get_level_number(level)            
         return level
@@ -332,9 +336,7 @@ class IdxAccessor:
         @functools.wraps(target_method)
         def _method_wrapper(*args, **kwargs):
             result = target_method(*args, **kwargs)
-            frame_new = self._frame.copy() if self._copy else self._frame
-            frame_new.index = self._to_index(result)
-            return frame_new
+            return self._update_index(result)
         return _method_wrapper
     
     def _get_target_method(self, caller_obj, attr):
@@ -342,23 +344,21 @@ class IdxAccessor:
             caller_obj = getattr(caller_obj, self._accessor)  
         return getattr(caller_obj, attr)
 
-    def _to_index(self, pd_obj):
-        if self._keep_remaining and hasattr(self._frame.index, 'levels') and self._level is not None:
-            # replace maching multiindex levels - single by single or multiple by multiple with matching length
-            if ((~_is_collection(self._level) and isinstance(pd_obj, pd.Series)) or 
-               (_is_collection(self._level) and isinstance(pd_obj, pd.DataFrame) and len(self._level) == pd_obj.shape[1])):
-                return self._frame.index.set_levels(pd_obj.values.T, self._level)
-            # append new levels to original unchanged levels
-            else:
-                orig_levels = {}
-                for level in self._frame.index.names:
-                    if self._frame.index._get_level_number(level) not in _collection(self._level):
-                        orig_levels[level] = self._frame.index.get_level_values(level)
-                pd.DataFrame([orig_levels, pd_obj.reset_index(drop=True)])
-                
-        if isinstance(pd_obj, pd.DataFrame):
-            return pd.MultiIndex.from_frame(pd_obj)
-        return pd_obj
+    def _update_index(self, index_new):
+        frame_new = self._frame.copy() if self._copy else self._frame
+        if self._level is not None:
+            # append remaining levels
+            index_old = self._frame.index.to_frame()
+            remaining_levels = index_old.drop(index_old.columns[self._level], 1)
+            index_new = pd.concat([remaining_levels, index_new], 1)
+            if index_old.shape == index_new.shape:
+                index_new = index_new.reindex_like(index_old)
+            index_new = pd.MultiIndex.from_frame(index_new)
+
+        if isinstance(index_new, pd.DataFrame):
+                index_new = pd.MultiIndex.from_frame(index_new)
+        frame_new.index = index_new
+        return frame_new
             
     def _is_accessor(self, attr):
         type_ = self._get_caller_type()
@@ -367,7 +367,7 @@ class IdxAccessor:
     def _get_caller_obj(self):
         index = self._frame.index
         if hasattr(index, 'levels'):
-            caller_obj = index.to_frame().reset_index(drop=True)
+            caller_obj = index.to_frame()
             if self._level is not None:
                 return caller_obj.iloc[:, self._level]
             return caller_obj
