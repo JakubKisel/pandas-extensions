@@ -254,10 +254,13 @@ class RangeAccessor:
 
 @pd.api.extensions.register_index_accessor('is_consecutive')
 class ConsecutiveDateAccessor:
-    def __new__(cls, index):
-        if isinstance(index, pd.DatetimeIndex):
-            return index.notna().all() and index.to_series().diff().nunique() <= 1
-        raise NotImplementedError(f'`is_consecutive` is not implemented for an instance of `{type(index).__name__}`')    
+    def __init__(self, index):
+        self._index = index
+
+    def __call__(self):
+        if isinstance(self._index, pd.DatetimeIndex):
+            return self._index.notna().all() and self._index.to_series().diff().nunique() <= 1
+        raise NotImplementedError(f'`is_consecutive` is not implemented for an instance of `{type(self._index).__name__}`')    
 
 
 @pd.api.extensions.register_dataframe_accessor('idx')
@@ -311,10 +314,12 @@ class IdxAccessor:
             self._accessor = attr
             return self
         else:
-            caller_obj = self._get_caller_obj()
-            target_method = self._get_target_method(caller_obj, attr)
-            del self._frame.idx      # cleanup
-            return self.apply_on_index(target_method)
+            try:
+                caller_obj = self._get_caller_obj()
+                target_method = self._get_target_method(caller_obj, attr)
+                return self.apply_on_index(target_method)
+            finally:
+                del self._frame.idx      # cleanup
         
     def _validate_level(self, level):
         if level is not None:
