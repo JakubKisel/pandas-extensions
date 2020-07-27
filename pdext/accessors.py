@@ -64,6 +64,9 @@ class DictAccessor:
     
     def __setitem__(self, key, value):
         return self._series.apply(self._setter, key=key, value=value)
+
+    def len(self):
+        return self._series.apply(lambda x: len(x))
         
     def get(self, key):
         return self._series.apply(lambda x: x.get(key, np.NaN))
@@ -71,11 +74,8 @@ class DictAccessor:
     def iget(self, index):
         return self._series.apply(self._igetter, index=index)
 
-    # def keys(self):
-    #     return self._series.apply(lambda x: x.keys())
-
     def __getattr__(self, attr):
-        return lambda *args, **kwargs: self._series.apply(lambda x: getattr(x, attr)(*args, **kwargs))
+        return lambda *args, **kwargs: self._series.apply(lambda x: getattr(x, attr)(*args, **kwargs) if hasattr(x, attr) else np.NaN)
     
     @staticmethod
     def _validate(series):
