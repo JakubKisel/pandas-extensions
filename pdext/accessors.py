@@ -27,7 +27,8 @@ class ListAccessor:
     def __setitem__(self, index, value):
         return self._series.apply(self._setter, index=index, value=value)
     
-    def _setter(self, lst, index, value):
+    @staticmethod
+    def _setter(lst, index, value):
         if callable(value):
             lst[index] = value(lst[index])
         else:
@@ -37,7 +38,7 @@ class ListAccessor:
     @staticmethod
     def _validate(series):
         if not series.apply(lambda x: hasattr(x, '__getitem__')).all():
-            raise AttributeError('Can only use `list` accessor with values that implement __getitem__.')
+            raise AttributeError('Can only use `list` accessor with values that implement `__getitem__`.')
             
     def len(self):
         return self._series.apply(lambda x: len(x))
@@ -50,6 +51,51 @@ class ListAccessor:
     
     def join(self, sep=''):
         return self._series.apply(lambda x: sep.join(x))    
+
+
+@pd.api.extensions.register_series_accessor('dict')
+class DictAccessor:
+    def __init__(self, series):
+        self._validate(series)
+        self._series = series
+                
+    def __getitem__(self, key):
+        return self._series.apply(lambda x: x[key])
+    
+    def __setitem__(self, key, value):
+        return self._series.apply(self._setter, key=key, value=value)
+        
+    def get(self, key):
+        return self._series.apply(lambda x: x.get(key, np.NaN))
+    
+    def iget(self, index):
+        return self._series.apply(self._igetter, index=index)
+
+    # def keys(self):
+    #     return self._series.apply(lambda x: x.keys())
+
+    def __getattr__(self, attr):
+        return lambda *args, **kwargs: self._series.apply(lambda x: getattr(x, attr)(*args, **kwargs))
+    
+    @staticmethod
+    def _validate(series):
+        if not series.apply(lambda x: hasattr(x, '__getitem__')).all():
+            raise AttributeError('Can only use `dict` accessor with values that implement `__getitem__`.')
+    
+    def _setter(self, dict_, key, value):
+        if callable(value):
+            dict_[key] = value(dict_[key])
+        else:
+            dict_[key] = value
+        return dict_
+    
+    @staticmethod
+    def _igetter(dict_, index):
+        keys = list(dict_.keys())
+        try:
+            return dict_[keys[index]]
+        except IndexError:
+            return np.NaN
 
 
 @pd.api.extensions.register_dataframe_accessor('label_encoder')
